@@ -1,0 +1,35 @@
+# Runs the paper portfolio once a day after the US close, then commits the new state and
+# dashboard. Enable GitHub Pages (Settings -> Pages -> Deploy from branch: main, /docs) to view it.
+name: live paper portfolio
+
+on:
+  schedule:
+    - cron: "30 21 * * *"   # 21:30 UTC daily = after the 4pm New York close, all year
+  workflow_dispatch:         # "Run workflow" button for a manual tick
+
+permissions:
+  contents: write
+
+concurrency:
+  group: live-portfolio
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m live.run
+      - name: Commit updated state and dashboard
+        run: |
+          git config user.name "paper-portfolio-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add live/state docs
+          git diff --cached --quiet || git commit -m "tick $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push
