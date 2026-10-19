@@ -1,4 +1,5 @@
-"""Render the static dashboard page (docs/index.html) from the live state. GitHub Pages serves it as-is."""
+"""Render the static dashboard (docs/index.html): the live paper portfolio only, as one chart
+(each sleeve's value since paper trading began) and one table. GitHub Pages serves it as-is."""
 from __future__ import annotations
 
 import html
@@ -7,7 +8,7 @@ from pathlib import Path
 
 START_CASH = 10_000.0
 
-# Fixed categorical order (validated palette): each sleeve owns its color everywhere.
+# Fixed categorical order (validated palette): each sleeve owns its color. (light, dark)
 COLORS = {
     "etf_momentum": ("#2a78d6", "#3987e5"),
     "etf_rp_trend": ("#eb6834", "#d95926"),
@@ -16,84 +17,35 @@ COLORS = {
     "bench_btc": ("#e87ba4", "#d55181"),
 }
 
-FINDINGS = [
-    ("ETF momentum rotation held up best.",
-     "2007-2026: +11.9%/yr vs SPY's +11.0%, worst drop -17% vs -55%. Similar results with top 2/3/4 picks, "
-     "with or without QQQ, and in both decades."),
-    ("Risk parity + trend is the smoothest.",
-     "Only +5.3%/yr, but the worst drop was -7%. Think of it as an alternative to holding bonds."),
-    ("BTC trend rules cut crashes, not returns.",
-     "2019-2026: about the same return as holding, worst drop -46% vs -77%. It lagged plain holding in 2023-26."),
-    ("Rotating between altcoins lost.",
-     "Momentum across 12 coins: ~15%/yr with -86% drawdowns. Fees and alt-season collapses eat it."),
-    ("ML models were coin flips.",
-     "Logistic regression, random forest and gradient boosting, retrained yearly: AUC ~0.50 on SPY and BTC. "
-     "On BTC every model lost money; a 200-day average beat them all."),
-    ("Polymarket longshot bias didn't last.",
-     "Buying NO on 2-10c outcomes earned +2.5%/bet in 2023-24 but lost 1-4% on recent markets."),
-]
 
-
-def _money(x: float) -> str:
-    return f"${x:,.0f}"
-
-
-def render(state: dict, sleeves, backtests: dict, trades: list[dict], poly: dict | None, out: Path) -> None:
+def render(state: dict, sleeves, out: Path) -> None:
     updated = state.get("_meta", {}).get("updated", "")
-    cards = []
+    live_start = min(state[s.key]["started"][:10] for s in sleeves)
+    rows, series = [], []
     for s in sleeves:
         st = state[s.key]
         ret = st["equity"] / START_CASH - 1
-        hold = "".join(f"<li><span>{html.escape(a)}</span><span>{w:.0%}</span></li>"
-                       for a, w in sorted(st["holdings"].items(), key=lambda kv: -kv[1])) or "<li><span>Cash</span><span>100%</span></li>"
-        cards.append(f"""
-      <article class="card" style="--c-light:{COLORS[s.key][0]};--c-dark:{COLORS[s.key][1]}">
-        <header><span class="swatch{' dashed' if s.benchmark else ''}"></span><h3>{html.escape(s.name)}</h3></header>
-        <div class="big">{_money(st['equity'])}</div>
-        <div class="ret {'up' if ret >= 0 else 'down'}">{'▲' if ret >= 0 else '▼'} {ret:+.2%} since {st['started'][:10]}</div>
-        <p class="desc">{html.escape(s.description)}</p>
-        <ul class="holdings">{hold}</ul>
-        <p class="meta">Rebalances {'monthly' if s.freq == 'M' else 'weekly'} · last signal {st.get('last_signal')}</p>
-      </article>""")
+        holdings = ", ".join(f"{html.escape(a)} {w:.0%}" for a, w in
+                             sorted(st["holdings"].items(), key=lambda kv: -kv[1])) or "Cash"
+        rows.append(f"""
+        <tr class="{'bench' if s.benchmark else ''}">
+          <td><div class="name"><span class="swatch{' dashed' if s.benchmark else ''}"
+               style="--c-light:{COLORS[s.key][0]};--c-dark:{COLORS[s.key][1]}"></span>{html.escape(s.name)}</div>
+              <div class="rule">{html.escape(s.rule)}</div>
+              <div class="rule">Holding now: {holdings}</div></td>
+          <td class="num">${st['equity']:,.0f}</td>
+          <td class="num {'up' if ret >= 0 else 'down'}">{ret:+.2%}</td>
+        </tr>""")
+        series.append({"key": s.key, "name": s.name, "benchmark": s.benchmark,
+                       "points": st["history"]})
 
-    trade_rows = "".join(
-        f"<tr><td>{html.escape(t['time_utc'][:16].replace('T', ' '))}</td><td>{html.escape(t['sleeve'])}</td>"
-        f"<td>{html.escape(t['action'])}</td><td>{html.escape(t['asset'])}</td><td class='num'>${float(t['value']):,.0f}</td>"
-        f"<td class='num'>{float(t['price']):,.2f}</td></tr>"
-        for t in reversed(trades[-30:])) or "<tr><td colspan=6>No trades yet.</td></tr>"
-
-    if poly:
-        rows = "".join(
-            f"<tr><td><a href='https://polymarket.com/event/{html.escape(p['slug'])}'>{html.escape(p['title'])}</a>"
-            f"{'<div class=flag>⚠ ' + html.escape(p['flags']) + '</div>' if p['flags'] else ''}</td>"
-            f"<td>{html.escape(p['side'])}</td><td class='num'>{p['edge_cents']:.2f}¢</td>"
-            f"<td class='num'>{p['sets']:,.0f}</td><td class='num'>${p['profit']:,.2f}</td></tr>"
-            for p in poly["top"]) or "<tr><td colspan=5>Nothing profitable after fees right now.</td></tr>"
-        poly_html = f"""
-      <p class="sub">Scanned {poly['events']:,} open events at {html.escape(poly['scanned_at'][:16].replace('T', ' '))} UTC:
-        {poly['profitable']} full sets profitable after fees, <strong>{poly['clean']} without red flags</strong>.
-        Read-only, never trades.</p>
-      <div class="scroll"><table><thead><tr><th>Event</th><th>Side</th><th class="num">Edge / set</th>
-        <th class="num">Sets</th><th class="num">Profit</th></tr></thead><tbody>{rows}</tbody></table></div>"""
-    else:
-        poly_html = "<p class='sub'>No scan yet.</p>"
-
-    findings = "".join(f"<li><strong>{html.escape(h)}</strong> {html.escape(b)}</li>" for h, b in FINDINGS)
-
-    payload = {
-        "series": [{"key": s.key, "name": s.name, "benchmark": s.benchmark, "market": s.market,
-                    "live": [[d, v / START_CASH * 100] for d, v in state[s.key]["history"]],
-                    "backtest": backtests.get(s.key, [])} for s in sleeves],
-        "colors": COLORS,
-    }
-
+    payload = {"series": series, "colors": COLORS}
+    page = (TEMPLATE.replace("{{UPDATED}}", html.escape(updated[:16].replace("T", " ")))
+            .replace("{{LIVE_START}}", live_start)
+            .replace("{{ROWS}}", "".join(rows))
+            .replace("{{DATA}}", json.dumps(payload).replace("</", "<\\/")))
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(TEMPLATE.replace("{{UPDATED}}", html.escape(updated[:16].replace("T", " ")))
-                   .replace("{{CARDS}}", "".join(cards))
-                   .replace("{{TRADES}}", trade_rows)
-                   .replace("{{POLY}}", poly_html)
-                   .replace("{{FINDINGS}}", findings)
-                   .replace("{{DATA}}", json.dumps(payload).replace("</", "<\\/")))
+    out.write_text(page)
 
 
 TEMPLATE = """<!doctype html>
@@ -126,121 +78,96 @@ TEMPLATE = """<!doctype html>
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--surface-0); color: var(--text-primary);
   font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 64px; }
-h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.01em; }
-h2 { font-size: 18px; margin: 40px 0 8px; }
-h3 { font-size: 15px; margin: 0; }
-.sub { color: var(--text-secondary); margin: 0 0 16px; }
-.banner { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px 14px; color: var(--text-secondary); font-size: 14px; margin: 16px 0 0; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 20px; }
-.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px;
-  --c: var(--c-light); }
-@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) .card { --c: var(--c-dark); } }
-:root[data-theme="dark"] .card { --c: var(--c-dark); }
-.card header { display: flex; align-items: center; gap: 8px; }
-.swatch { width: 14px; height: 3px; border-radius: 2px; background: var(--c); flex: none; }
-.swatch.dashed { background: repeating-linear-gradient(90deg, var(--c) 0 4px, transparent 4px 7px); }
-.big { font-size: 28px; font-weight: 650; margin-top: 10px; font-variant-numeric: tabular-nums; }
-.ret { font-size: 14px; font-variant-numeric: tabular-nums; }
-.ret.up { color: var(--up); } .ret.down { color: var(--down); }
-.desc { color: var(--text-secondary); font-size: 13px; margin: 10px 0; }
-.meta { color: var(--text-muted); font-size: 12px; margin: 8px 0 0; }
-.holdings { list-style: none; padding: 0; margin: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
-.holdings li { display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding: 4px 0; }
+main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 48px; }
+h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.sub { color: var(--text-secondary); margin: 0 0 20px; font-size: 14px; }
 .panel { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
-.chart { position: relative; height: 320px; }
-.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-@media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
-.scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th { text-align: left; color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid var(--border); padding: 6px 8px; }
-td { border-bottom: 1px solid var(--border); padding: 6px 8px; vertical-align: top; }
+.chart { position: relative; height: 440px; }
+@media (max-width: 600px) { .chart { height: 320px; } }
+.scroll { overflow-x: auto; margin-top: 16px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; color: var(--text-secondary); font-weight: 600; font-size: 12px;
+  border-bottom: 1px solid var(--border); padding: 8px; vertical-align: bottom; }
+td { border-bottom: 1px solid var(--border); padding: 10px 6px; vertical-align: top; }
+tr:last-child td { border-bottom: none; }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-a { color: inherit; }
-.flag { color: var(--text-muted); font-size: 12px; }
-.findings { padding-left: 18px; } .findings li { margin-bottom: 8px; color: var(--text-secondary); }
-.findings strong { color: var(--text-primary); }
-footer { color: var(--text-muted); font-size: 12px; margin-top: 40px; }
+.name { display: flex; align-items: center; gap: 8px; font-weight: 600; white-space: nowrap; }
+.rule { color: var(--text-muted); font-size: 12px; margin-left: 22px; }
+td:first-child { min-width: 200px; }
+.num { padding-left: 4px; }
+.bench .name { font-weight: 500; }
+.up { color: var(--up); } .down { color: var(--down); }
+.swatch { width: 14px; height: 3px; border-radius: 2px; flex: none; background: var(--c-light); }
+.swatch.dashed { background: repeating-linear-gradient(90deg, var(--c-light) 0 4px, transparent 4px 7px); }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .swatch { background: var(--c-dark); }
+  :root:where(:not([data-theme="light"])) .swatch.dashed { background: repeating-linear-gradient(90deg, var(--c-dark) 0 4px, transparent 4px 7px); }
+}
+:root[data-theme="dark"] .swatch { background: var(--c-dark); }
+:root[data-theme="dark"] .swatch.dashed { background: repeating-linear-gradient(90deg, var(--c-dark) 0 4px, transparent 4px 7px); }
+footer { color: var(--text-muted); font-size: 12px; margin-top: 16px; }
 </style>
 </head>
 <body>
 <main>
   <h1>Paper Trading Desk</h1>
-  <p class="sub">Updated {{UPDATED}} UTC · every sleeve started with $10,000 of fake money</p>
-  <div class="banner">Simulated trades at real prices with fees. No real money is involved. Not financial advice.</div>
+  <p class="sub">Each strategy started with $10,000 of fake money on {{LIVE_START}}. Values after fees,
+    updated daily after the US close. Last update {{UPDATED}} UTC.</p>
 
-  <div class="grid">{{CARDS}}</div>
-
-  <h2>Live paper performance</h2>
-  <p class="sub">Value of each $10,000 sleeve, indexed to 100 at its start.</p>
-  <div class="panel"><div class="chart"><canvas id="live" aria-label="Live paper performance chart"></canvas></div></div>
-
-  <h2>Backtests</h2>
-  <p class="sub">Same rules run on history with fees. Growth of $1, log scale. Backtests are optimistic; the live chart is the real test.</p>
-  <div class="two">
-    <div class="panel"><h3>ETFs, 2007 to today</h3><div class="chart"><canvas id="bt-etf" aria-label="ETF backtest chart"></canvas></div></div>
-    <div class="panel"><h3>Bitcoin, 2019 to today</h3><div class="chart"><canvas id="bt-crypto" aria-label="Crypto backtest chart"></canvas></div></div>
+  <div class="panel">
+    <div class="chart"><canvas id="chart" role="img" aria-label="Paper portfolio value for each strategy and benchmark"></canvas></div>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Strategy</th><th class="num">Value</th><th class="num">Return</th></tr>
+        </thead>
+        <tbody>{{ROWS}}</tbody>
+      </table>
+    </div>
   </div>
-
-  <h2>Polymarket arbitrage scanner</h2>
-  <div class="panel">{{POLY}}</div>
-
-  <h2>Recent paper trades</h2>
-  <div class="panel scroll"><table><thead><tr><th>Time (UTC)</th><th>Sleeve</th><th>Action</th><th>Asset</th>
-    <th class="num">Value</th><th class="num">Price</th></tr></thead><tbody>{{TRADES}}</tbody></table></div>
-
-  <h2>What the research found</h2>
-  <div class="panel"><ul class="findings">{{FINDINGS}}</ul></div>
-  <footer>Generated by live/run.py</footer>
+  <footer>Simulated trades at real prices. Not financial advice.</footer>
 </main>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 const DATA = {{DATA}};
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-const dark = () => css('--surface-1').toLowerCase() === '#1a1a19';
-const charts = [];
+const isDark = () => css('--surface-1').toLowerCase() === '#1a1a19';
+const fmtDay = (t) => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const fmtDate = (t) => new Date(t).toISOString().slice(0, 10);
+let chart;
 
-function build(id, pick, filter, opts) {
-  const series = DATA.series.filter(filter);
-  const datasets = series.map(s => ({
-    label: s.name,
-    data: pick(s).map(([x, y]) => ({ x, y })),
-    borderColor: DATA.colors[s.key][dark() ? 1 : 0],
-    backgroundColor: DATA.colors[s.key][dark() ? 1 : 0],
-    borderWidth: 2, borderDash: s.benchmark ? [5, 4] : [],
-    pointRadius: pick(s).length < 3 ? 4 : 0, pointHoverRadius: 5, tension: 0,
-  }));
-  const grid = css('--grid'), ink = css('--text-secondary');
-  const c = new Chart(document.getElementById(id), {
+function draw() {
+  if (chart) chart.destroy();
+  const ink = css('--text-secondary');
+  const few = Math.max(...DATA.series.map(s => s.points.length)) < 15;
+  chart = new Chart(document.getElementById('chart'), {
     type: 'line',
-    data: { datasets },
+    data: { datasets: DATA.series.map(s => {
+      const c = DATA.colors[s.key][isDark() ? 1 : 0];
+      return { label: s.name, data: s.points.map(([d, v]) => ({ x: Date.parse(d), y: v })),
+               borderColor: c, backgroundColor: c, borderWidth: 2, borderDash: s.benchmark ? [6, 4] : [],
+               pointRadius: few ? 3 : 0, pointHoverRadius: 4, pointHitRadius: 6, tension: 0 };
+    }) },
     options: {
       maintainAspectRatio: false, animation: false,
-      interaction: { mode: 'index', intersect: false },
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
       scales: {
-        x: { type: 'category', labels: [...new Set(datasets.flatMap(d => d.data.map(p => p.x)))].sort(),
-             ticks: { color: ink, maxTicksLimit: 7, maxRotation: 0 }, grid: { display: false } },
-        y: { type: opts.log ? 'logarithmic' : 'linear', ticks: { color: ink, maxTicksLimit: 6,
-             callback: v => opts.log ? '$' + Number(v).toFixed(v < 10 ? 1 : 0) : v },
-             grid: { color: grid }, border: { display: false } },
+        x: { type: 'linear', grid: { display: false }, offset: true,
+             ticks: { color: ink, maxRotation: 0, maxTicksLimit: 8, callback: v => fmtDay(v) },
+             afterBuildTicks: a => { if (few) a.ticks = [...new Set(DATA.series.flatMap(s => s.points.map(p => Date.parse(p[0]))))].map(value => ({ value })); } },
+        y: { grid: { color: css('--grid') }, border: { display: false }, grace: '2%',
+             ticks: { color: ink, maxTicksLimit: 6, callback: v => '$' + Math.round(v).toLocaleString() } },
       },
       plugins: {
-        legend: { position: 'bottom', labels: { color: ink, boxWidth: 14, boxHeight: 2 } },
-        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${opts.log ? '$' + ctx.parsed.y.toFixed(2) : ctx.parsed.y.toFixed(2)}` } },
+        legend: { position: 'bottom', labels: { color: ink, boxWidth: 14, boxHeight: 2, padding: 16 } },
+        tooltip: { itemSort: (a, b) => b.parsed.y - a.parsed.y,
+                   callbacks: { title: items => fmtDate(items[0].parsed.x),
+                                label: i => ` ${i.dataset.label}: $${Math.round(i.parsed.y).toLocaleString()}` } },
       },
     },
   });
-  charts.push(c);
 }
-
-function drawAll() {
-  charts.splice(0).forEach(c => c.destroy());
-  build('live', s => s.live, () => true, {});
-  build('bt-etf', s => s.backtest, s => s.market === 'etf', { log: true });
-  build('bt-crypto', s => s.backtest, s => s.market === 'crypto', { log: true });
-}
-if (window.Chart) { drawAll(); matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawAll); }
+if (window.Chart) { draw(); matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw); }
 </script>
 </body>
 </html>

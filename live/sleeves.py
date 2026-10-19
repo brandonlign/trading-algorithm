@@ -23,32 +23,27 @@ CRYPTO_SYMBOLS = ["BTC/USD"]
 class Sleeve:
     key: str
     name: str
-    description: str
+    rule: str
     market: str  # "etf" or "crypto"
     weights: Callable[[pd.DataFrame], pd.DataFrame]
     freq: str  # rebalance: "M" monthly, "W" weekly
     cost_bps: float
     cash_asset: str | None = None  # where uninvested money sits (None = plain cash)
     benchmark: bool = False
-    backtest_start: str = "2007-07-01"
 
 
 SLEEVES = [
     Sleeve("etf_momentum", "ETF Momentum Rotation",
-           "Each month, hold the 3 ETFs (of 9: stocks, bonds, gold, commodities, REITs) with the best "
-           "1/3/6/12-month momentum. Picks below their 200-day average go to bonds (IEF).",
+           "Top 3 of 9 asset-class ETFs by momentum; weak picks go to bonds. Monthly.",
            "etf", lambda px: A.xs_momentum(px, ROTATION_UNIVERSE, top=3, safe="IEF"), "M", 5, "BIL"),
     Sleeve("etf_rp_trend", "ETF Risk Parity + Trend",
-           "Each month, spread risk evenly across 8 asset classes (inverse volatility), skipping any "
-           "below its 200-day average. Low return, very small drawdowns.",
+           "Equal risk across 8 asset classes, skipping any below its 200-day average. Monthly.",
            "etf", lambda px: A.risk_parity(px, RISK_PARITY_UNIVERSE, trend_sma=200), "M", 5, "BIL"),
     Sleeve("btc_trend", "BTC Trend Ensemble",
-           "Each week, own 1/3 BTC for each of its 50/100/200-day averages the price is above. "
-           "Aims to sit out the big crypto crashes.",
-           "crypto", lambda px: A.trend_ensemble(px, "BTC"), "W", 40, None, backtest_start="2019-01-01"),
-    Sleeve("bench_spy", "Benchmark: SPY buy & hold", "100% S&P 500, never trades.",
-           "etf", lambda px: A.fixed(px, {"SPY": 1.0}), "M", 5, None, benchmark=True),
-    Sleeve("bench_btc", "Benchmark: BTC buy & hold", "100% bitcoin, never trades.",
-           "crypto", lambda px: A.fixed(px, {"BTC": 1.0}), "W", 40, None, benchmark=True,
-           backtest_start="2019-01-01"),
+           "1/3 in BTC per 50/100/200-day average the price is above. Weekly.",
+           "crypto", lambda px: A.trend_ensemble(px, "BTC"), "W", 40),
+    Sleeve("bench_spy", "SPY buy & hold", "Benchmark: 100% S&P 500.",
+           "etf", lambda px: A.fixed(px, {"SPY": 1.0}), "M", 5, benchmark=True),
+    Sleeve("bench_btc", "BTC buy & hold", "Benchmark: 100% bitcoin.",
+           "crypto", lambda px: A.fixed(px, {"BTC": 1.0}), "W", 40, benchmark=True),
 ]

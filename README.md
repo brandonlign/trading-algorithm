@@ -12,7 +12,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ## Live paper portfolio
 
 ```bash
-.venv/bin/python -m live.run                   # one tick: rebalance if due, mark to market, scan Polymarket
+.venv/bin/python -m live.run                   # one tick: rebalance if due, mark to market, rebuild dashboard
 .venv/bin/python -m live.run --loop 60         # keep running on an always-on machine
 open docs/index.html                           # the dashboard
 ```
@@ -26,6 +26,10 @@ Five sleeves, $10,000 of fake money each (defined in `live/sleeves.py`):
 | BTC Trend Ensemble | 1/3 BTC per 50/100/200-day average the price is above | weekly |
 | SPY buy & hold | benchmark | — |
 | BTC buy & hold | benchmark | — |
+
+The dashboard shows only the live paper portfolio: one chart of each sleeve's value since paper
+trading began (2026-10-19), and a table of current value, return, and holdings. Backtest results
+live in `research/`, not on the dashboard.
 
 Signals use only completed daily bars. Trades fill at the latest price with fees
 (5 bps ETFs, 40 bps crypto). State lives in `live/state/`, and every fill is in `live/state/trades.csv`.

@@ -1,9 +1,8 @@
 """One tick of the live paper portfolio: refresh prices, rebalance any sleeve whose period just
-ended, mark everything to market, scan Polymarket, and rebuild the dashboard. Fake money only.
+ended, mark everything to market, and rebuild the dashboard. Fake money only.
 
-    .venv/bin/python -m live.run                    # one tick (what the daily GitHub Action runs)
-    .venv/bin/python -m live.run --loop 60          # keep ticking every 60 min on an always-on machine
-    .venv/bin/python -m live.run --skip-polymarket  # faster, portfolio only
+    .venv/bin/python -m live.run             # one tick (what the daily GitHub Action runs)
+    .venv/bin/python -m live.run --loop 60   # keep ticking every 60 min on an always-on machine
 """
 from __future__ import annotations
 
@@ -20,7 +19,6 @@ import pandas as pd
 
 from trading.allocations import park_cash
 from trading.data import load_crypto_panel, load_stock_panel
-from trading.portfolio import run_portfolio
 
 from .dashboard import render
 from .sleeves import CRYPTO_SYMBOLS, ETF_TICKERS, SLEEVES
@@ -29,7 +27,6 @@ ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / "live" / "state"
 STATE_PATH = STATE_DIR / "portfolio.json"
 TRADES_PATH = STATE_DIR / "trades.csv"
-POLY_PATH = STATE_DIR / "polymarket.json"
 START_CASH = 10_000.0
 NY = ZoneInfo("America/New_York")
 
@@ -111,43 +108,14 @@ def tick_sleeve(sleeve, px_all: pd.DataFrame, state: dict, now: str, trades: lis
     s["history"] = [h for h in s["history"] if h[0] != day] + [[day, round(equity, 2)]]
 
 
-def backtest_curves(etf_long: pd.DataFrame, crypto_long: pd.DataFrame) -> dict:
-    curves = {}
-    for sleeve in SLEEVES:
-        px = etf_long if sleeve.market == "etf" else crypto_long
-        w = sleeve.weights(px)
-        if sleeve.cash_asset:
-            w = park_cash(w, sleeve.cash_asset)
-        res = run_portfolio(px.loc[sleeve.backtest_start:], w.loc[sleeve.backtest_start:], sleeve.cost_bps)
-        weekly = res["equity"].resample("W").last().dropna()
-        curves[sleeve.key] = [[str(d.date()), round(float(v), 4)] for d, v in weekly.items()]
-    return curves
-
-
-def scan_polymarket() -> dict:
-    import polymarket
-
-    n_events, results = polymarket.scan(include_augmented=False, near=0.02)
-    keep = [r for r in results if r["profit"] > 0]
-    return {
-        "scanned_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "events": n_events,
-        "profitable": len(keep),
-        "clean": sum(1 for r in keep if not r["flags"]),
-        "top": [{"title": r["event"]["title"], "slug": r["event"]["slug"], "side": r["side"],
-                 "outcomes": len(r["markets"]), "edge_cents": round(r["top_edge"] * 100, 2),
-                 "sets": round(r["sets"], 1), "profit": round(r["profit"], 2), "flags": r["flags"]}
-                for r in keep[:10]],
-    }
-
-
-def tick(skip_polymarket: bool) -> None:
+def tick() -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     state = json.loads(STATE_PATH.read_text()) if STATE_PATH.exists() else {}
 
-    etf = with_retries(lambda: load_stock_panel(ETF_TICKERS, start="2003-01-01", fresh=True))
-    crypto = with_retries(lambda: load_crypto_panel(CRYPTO_SYMBOLS, years=8, fresh=True))
+    start = (datetime.now(timezone.utc) - timedelta(days=3 * 365)).strftime("%Y-%m-%d")  # enough for 1y lookbacks
+    etf = with_retries(lambda: load_stock_panel(ETF_TICKERS, start=start, fresh=True))
+    crypto = with_retries(lambda: load_crypto_panel(CRYPTO_SYMBOLS, years=2, fresh=True))
 
     trades: list = []
     for sleeve in SLEEVES:
@@ -163,15 +131,7 @@ def tick(skip_polymarket: bool) -> None:
                 w.writerow(["time_utc", "sleeve", "action", "asset", "units", "price", "value"])
             w.writerows(trades)
 
-    if not skip_polymarket:
-        try:
-            POLY_PATH.write_text(json.dumps(scan_polymarket(), indent=1))
-        except Exception:
-            traceback.print_exc()
-
-    poly = json.loads(POLY_PATH.read_text()) if POLY_PATH.exists() else None
-    trade_rows = list(csv.DictReader(TRADES_PATH.open())) if TRADES_PATH.exists() else []
-    render(state, SLEEVES, backtest_curves(etf, crypto), trade_rows, poly, ROOT / "docs" / "index.html")
+    render(state, SLEEVES, ROOT / "docs" / "index.html")
 
     for sleeve in SLEEVES:
         s = state[sleeve.key]
@@ -183,11 +143,10 @@ def tick(skip_polymarket: bool) -> None:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--loop", type=float, metavar="MINUTES")
-    ap.add_argument("--skip-polymarket", action="store_true")
     args = ap.parse_args()
     while True:
         try:
-            tick(args.skip_polymarket)
+            tick()
         except Exception:
             if not args.loop:
                 raise
