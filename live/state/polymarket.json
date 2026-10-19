@@ -1,5 +1,5 @@
 {
- "scanned_at": "2026-10-19T22:46:22+00:00",
+ "scanned_at": "2026-10-19T22:49:30+00:00",
  "events": 22098,
  "profitable": 7,
  "clean": 3,
@@ -21,7 +21,7 @@
    "outcomes": 6,
    "edge_cents": 14.68,
    "sets": 154.1,
-   "profit": 11.85,
+   "profit": 11.97,
    "flags": "PAST END DATE; EDGE TOO BIG: can every outcome lose? read the rules"
   },
   {
@@ -29,9 +29,9 @@
    "slug": "openai-ipo-closing-market-cap-554",
    "side": "BUY ALL YES",
    "outcomes": 7,
-   "edge_cents": 4.0,
+   "edge_cents": 3.9,
    "sets": 24.0,
-   "profit": 0.72,
+   "profit": 0.69,
    "flags": "EDGE TOO BIG: can every outcome lose? read the rules"
   },
   {
@@ -69,9 +69,9 @@
    "slug": "who-wins-the-senate-pending-hormuz-agreement",
    "side": "BUY ALL YES",
    "outcomes": 3,
-   "edge_cents": 0.44,
-   "sets": 318.2,
-   "profit": 0.81,
+   "edge_cents": 0.64,
+   "sets": 377.5,
+   "profit": 1.44,
    "flags": ""
   }
  ]
