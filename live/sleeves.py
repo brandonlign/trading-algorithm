@@ -17,6 +17,7 @@ ROTATION_UNIVERSE = ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "DBC", "VN
 RISK_PARITY_UNIVERSE = ["SPY", "EFA", "EEM", "TLT", "IEF", "GLD", "DBC", "VNQ"]
 ETF_TICKERS = sorted(set(ROTATION_UNIVERSE + RISK_PARITY_UNIVERSE + ["IEF", "BIL"]))
 CRYPTO_SYMBOLS = ["BTC/USD"]
+CARRY_COINS = ["BTC", "ETH", "SOL"]
 
 
 @dataclass
@@ -24,8 +25,8 @@ class Sleeve:
     key: str
     name: str
     rule: str
-    market: str  # "etf" or "crypto"
-    weights: Callable[[pd.DataFrame], pd.DataFrame]
+    market: str  # "etf", "crypto", or "carry" (funding accrual, no price exposure)
+    weights: Callable[[pd.DataFrame], pd.DataFrame] | None
     freq: str  # rebalance: "M" monthly, "W" weekly
     cost_bps: float
     cash_asset: str | None = None  # where uninvested money sits (None = plain cash)
@@ -42,6 +43,10 @@ SLEEVES = [
     Sleeve("btc_trend", "BTC Trend Ensemble",
            "1/3 in BTC per 50/100/200-day average the price is above. Weekly.",
            "crypto", lambda px: A.trend_ensemble(px, "BTC"), "W", 40),
+    Sleeve("funding_carry", "Crypto Funding Carry",
+           "Own BTC/ETH/SOL and short the same amount of perps (1/3 each); price risk cancels, "
+           "collect Hyperliquid funding. Always on.",
+           "carry", None, "W", 0),
     Sleeve("bench_spy", "SPY buy & hold", "Benchmark: 100% S&P 500.",
            "etf", lambda px: A.fixed(px, {"SPY": 1.0}), "M", 5, benchmark=True),
     Sleeve("bench_btc", "BTC buy & hold", "Benchmark: 100% bitcoin.",

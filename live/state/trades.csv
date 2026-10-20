@@ -10,3 +10,6 @@ time_utc,sleeve,action,asset,units,price,value
 2026-10-19T22:44:45+00:00,btc_trend,BUY,BTC,0.12149571,81978.2,9960.0
 2026-10-19T22:44:45+00:00,bench_spy,BUY,SPY,13.04013184,766.48,9995.0
 2026-10-19T22:44:45+00:00,bench_btc,BUY,BTC,0.12149571,81978.2,9960.0
+2026-10-19T23:27:39+00:00,funding_carry,OPEN,BTC spot long + perp short,0,0,2222.22
+2026-10-19T23:27:39+00:00,funding_carry,OPEN,ETH spot long + perp short,0,0,2222.22
+2026-10-19T23:27:39+00:00,funding_carry,OPEN,SOL spot long + perp short,0,0,2222.22

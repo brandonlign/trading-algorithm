@@ -13,6 +13,7 @@ COLORS = {
     "etf_momentum": ("#2a78d6", "#3987e5"),
     "etf_rp_trend": ("#eb6834", "#d95926"),
     "btc_trend": ("#1baf7a", "#199e70"),
+    "funding_carry": ("#6250d6", "#9085e9"),
     "bench_spy": ("#eda100", "#c98500"),
     "bench_btc": ("#e87ba4", "#d55181"),
 }

@@ -17,13 +17,14 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 open docs/index.html                           # the dashboard
 ```
 
-Five sleeves, $10,000 of fake money each (defined in `live/sleeves.py`):
+Six sleeves, $10,000 of fake money each (defined in `live/sleeves.py`):
 
 | Sleeve | Rule | Rebalances |
 | --- | --- | --- |
 | ETF Momentum Rotation | Hold the 3 strongest of 9 asset-class ETFs; weak picks go to bonds | monthly |
 | ETF Risk Parity + Trend | Equal risk across 8 asset classes, skip anything below its 200-day average | monthly |
 | BTC Trend Ensemble | 1/3 BTC per 50/100/200-day average the price is above | weekly |
+| Crypto Funding Carry | Long spot + short perp in BTC/ETH/SOL, collecting Hyperliquid funding | always on |
 | SPY buy & hold | benchmark | — |
 | BTC buy & hold | benchmark | — |
 
@@ -52,6 +53,7 @@ Public repos get unlimited Actions minutes. A private repo uses about 2 min/day 
 .venv/bin/python -m research.crypto_strategies       # BTC/alt trend & momentum, 2019-2026
 .venv/bin/python -m research.ml_test                 # do ML models help? (walk-forward)
 .venv/bin/python -m research.polymarket_calibration --summary   # longshot bias, old vs recent
+.venv/bin/python -m research.funding_carry           # spot/perp funding carry, Hyperliquid 2023-2026
 ```
 
 Findings, all out of sample and after costs:
@@ -64,6 +66,11 @@ Findings, all out of sample and after costs:
 - **Altcoin momentum rotation** failed: about 15%/yr with −86% drawdowns.
 - **ML models** (logistic regression, random forest, gradient boosting) scored AUC ≈ 0.50, a coin flip. On BTC
   every one lost money, while a plain 200-day average rule beat them.
+- **Funding carry** (long spot, short perp) made about +10%/yr on capital with almost no drawdown,
+  but it's fading: +16.7%/yr in the first half, +4.4% in the second, and ~3% at current rates.
+  Timing filters made it worse. Hyperliquid isn't available to US users.
+- **Polymarket vs Kalshi** (`cross_venue.py`): 100 games matched; before games start, the gaps
+  are smaller than the two venues' fees.
 - **Polymarket longshot bias** (buying NO at 2–10¢) earned +2.5%/bet in 2023–24 but lost on recent markets.
 
 ## Single-asset tools
@@ -71,6 +78,7 @@ Findings, all out of sample and after costs:
 | Script | What it does |
 | --- | --- |
 | `stocks.py` / `crypto.py` | Train/test backtest of 5 simple single-asset strategies |
+| `cross_venue.py` | Matches Polymarket and Kalshi game markets; flags when buying every outcome costs < $1 after fees (`--watch` logs hits) |
 | `polymarket.py` | Scans neg-risk events for full sets priced below their payout, after fees (`--watch` logs hits) |
 | `paper_trade.py` | Forward-tests one single-asset strategy with fake money |
 

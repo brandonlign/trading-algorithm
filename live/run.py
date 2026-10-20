@@ -21,7 +21,9 @@ from trading.allocations import park_cash
 from trading.data import load_crypto_panel, load_stock_panel
 
 from .dashboard import render
-from .sleeves import CRYPTO_SYMBOLS, ETF_TICKERS, SLEEVES
+from research.funding_carry import CAPITAL_PER_NOTIONAL, ROUND_TRIP
+
+from .sleeves import CARRY_COINS, CRYPTO_SYMBOLS, ETF_TICKERS, SLEEVES
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / "live" / "state"
@@ -108,6 +110,40 @@ def tick_sleeve(sleeve, px_all: pd.DataFrame, state: dict, now: str, trades: lis
     s["history"] = [h for h in s["history"] if h[0] != day] + [[day, round(equity, 2)]]
 
 
+def tick_carry(sleeve, state: dict, now: str, trades: list) -> None:
+    """Long spot + short perp in each coin: equity only moves with the hourly funding paid to the
+    short (divided by capital per $ hedged), minus fees to open. Rates come from Hyperliquid."""
+    import ccxt
+
+    ex = ccxt.hyperliquid({"enableRateLimit": True})
+    s = state.get(sleeve.key)
+    if s is None:
+        s = state[sleeve.key] = {"started": now, "history": [], "last_signal": now[:10],
+                                 "equity": START_CASH * (1 - ROUND_TRIP / 2 / CAPITAL_PER_NOTIONAL),
+                                 "funding_ts": ex.milliseconds()}
+        notional = START_CASH / CAPITAL_PER_NOTIONAL / len(CARRY_COINS)
+        for c in CARRY_COINS:
+            trades.append([now, sleeve.key, "OPEN", f"{c} spot long + perp short", 0, 0, round(notional, 2)])
+    else:
+        rates: dict[int, list[float]] = {}
+        for c in CARRY_COINS:
+            since = s["funding_ts"] + 1
+            while True:
+                batch = ex.fetch_funding_rate_history(f"{c}/USDC:USDC", since=since, limit=500)
+                for b in batch:
+                    rates.setdefault(b["timestamp"] // 3_600_000, []).append(b["fundingRate"])
+                if len(batch) < 500:
+                    break
+                since = batch[-1]["timestamp"] + 1
+        for hour in sorted(rates):
+            s["equity"] *= 1 + sum(rates[hour]) / len(CARRY_COINS) / CAPITAL_PER_NOTIONAL
+        if rates:
+            s["funding_ts"] = max(rates) * 3_600_000 + 3_599_999
+    s["holdings"] = {f"{c} hedged": round(1 / len(CARRY_COINS), 4) for c in CARRY_COINS}
+    day = now[:10]
+    s["history"] = [h for h in s["history"] if h[0] != day] + [[day, round(s["equity"], 2)]]
+
+
 def tick() -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -119,7 +155,10 @@ def tick() -> None:
 
     trades: list = []
     for sleeve in SLEEVES:
-        tick_sleeve(sleeve, etf if sleeve.market == "etf" else crypto, state, now, trades)
+        if sleeve.market == "carry":
+            tick_carry(sleeve, state, now, trades)
+        else:
+            tick_sleeve(sleeve, etf if sleeve.market == "etf" else crypto, state, now, trades)
     state["_meta"] = {"updated": now}
     STATE_PATH.write_text(json.dumps(state, indent=1))
 
