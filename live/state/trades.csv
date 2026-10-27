@@ -13,3 +13,4 @@ time_utc,sleeve,action,asset,units,price,value
 2026-10-19T23:27:39+00:00,funding_carry,OPEN,BTC spot long + perp short,0,0,2222.22
 2026-10-19T23:27:39+00:00,funding_carry,OPEN,ETH spot long + perp short,0,0,2222.22
 2026-10-19T23:27:39+00:00,funding_carry,OPEN,SOL spot long + perp short,0,0,2222.22
+2026-10-27T00:41:20+00:00,btc_trend,SELL,BTC,0.04060657,80149.99,3254.62
